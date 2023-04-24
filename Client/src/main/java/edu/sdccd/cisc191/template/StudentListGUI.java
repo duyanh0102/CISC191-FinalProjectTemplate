@@ -13,7 +13,6 @@ import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
 import java.io.*;
-import java.net.Socket;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -21,11 +20,14 @@ import java.util.Map;
  * This class represents a graphical user interface (GUI) for a student list application.
  * Users can add, remove, and view student records through a table view and input fields.
  */
-public class Client extends Application  {
-    Socket socket = new Socket("localhost", 4444);
-    BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-    PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+public class StudentListGUI extends Application  {
+    private ObjectOutputStream outputStream;
+    private ObjectInputStream inputStream;
 
+    public StudentListGUI(ObjectOutputStream outputStream, ObjectInputStream inputStream) {
+        this.outputStream = outputStream;
+        this.inputStream = inputStream;
+    }
     // Constants for maximum number of students and number of fields per student
     private final int MAX_STUDENTS = 100;
     private final int NUM_FIELDS = 5;
@@ -51,9 +53,6 @@ public class Client extends Application  {
 
     // Observable list of student records for populating table view
     private ObservableList<Students> studentData = FXCollections.observableArrayList();
-
-    public Client() throws IOException {
-    }
 
     /**
      * Launches the JavaFX application.
@@ -159,25 +158,19 @@ public class Client extends Application  {
         File file = fileChooser.showSaveDialog(mainPane.getScene().getWindow());
 
         if (file != null) {
-            try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
-                // Write student data to file line by line
-                for (Students student : studentData) {
-                    if (student instanceof athleteStudent) {
-                        athleteStudent athleteStudent = (athleteStudent) student;
-                        String line = athleteStudent.getId() + "," + athleteStudent.getFirstName() + "," + athleteStudent.getLastName() + "," + athleteStudent.getSport() + "," + athleteStudent.getGpa();
-                        writer.write(line);
-                        writer.newLine();
-                    } else {
-                        String line = student.getId() + "," + student.getFirstName() + "," + student.getLastName() + ",N/A," + student.getGpa();
-                        writer.write(line);
-                        writer.newLine();
-                    }
-                }
-            } catch (IOException e) {
-                e.printStackTrace();
+            try (ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(file))) {
+                // Write student data to file
+                out.writeObject(studentData);
+                out.flush();
+                Alert alert = new Alert(Alert.AlertType.INFORMATION, "Student data saved to file.");
+                alert.showAndWait();
+            } catch (IOException ex) {
+                Alert alert = new Alert(Alert.AlertType.ERROR, "Error saving student data to file.");
+                alert.showAndWait();
             }
         }
     }
+
 
     private void loadStudents() {
         // Create file chooser and show open dialog
@@ -218,60 +211,53 @@ public class Client extends Application  {
      Displays an error message if the maximum number of students has been reached.
      */
     private void addStudent() {
-        // Get input field values
-        int id = Integer.parseInt(((TextField) inputPane.getChildren().get(1)).getText());
-        String firstName = ((TextField) inputPane.getChildren().get(3)).getText();
-        String lastName = ((TextField) inputPane.getChildren().get(5)).getText();
-        String sport = ((TextField) inputPane.getChildren().get(7)).getText();
-        double gpa = Double.parseDouble(((TextField) inputPane.getChildren().get(9)).getText());
+        if (numStudents < MAX_STUDENTS) {
+            // Create new student record
+            Map<String, String> student = new HashMap<>();
+            for (int i = 0; i < NUM_FIELDS; i++) {
+                TextField field = (TextField) inputPane.getChildren().get(i * 2 + 1);
+                student.put("field" + i, field.getText());
+                int id = 0;
+                studentsMap.put(id, student);
+            }
+            // Create student object based on Sport field value
+            if (student.get("field3").equals("none")) {
+                studentData.add(new normalStudent(student.get("field0"), student.get("field1"), student.get("field2"), Double.parseDouble(student.get("field4"))));
+            } else {
+                studentData.add(new athleteStudent(student.get("field0"), student.get("field1"), student.get("field2"), student.get("field3"), Double.parseDouble(student.get("field4"))));
+            }
 
-        // Add student record to studentsMap
-        Map<String, String> studentRecord = new HashMap<>();
-        studentRecord.put("ID", Integer.toString(id));
-        studentRecord.put("First Name", firstName);
-        studentRecord.put("Last Name", lastName);
-        studentRecord.put("Sport", sport);
-        studentRecord.put("GPA", Double.toString(gpa));
-        studentsMap.put(id, studentRecord);
-
-        // Clear input fields
-        clearFields();
-
-        // Update table view
-        updateTable();
+            numStudents++;
+            clearFields();
+        } else {
+            // Display error message if maximum number of students has been reached
+            Alert alert = new Alert(Alert.AlertType.ERROR, "Maximum number of students reached.");
+            alert.showAndWait();
+        }
+    }
+    public Map<String, String> searchStudent(String id) {
+        // Search for the Student object in the HashMap using the ID as the key
+        Map<String, String> student = studentsMap.get(id);
+        // Return the Student object
+        return student;
     }
 
 
     /**
-     * Removes a selected student record from the table view and data source.
-     */
+             * Removes a selected student record from the table view and data source.
+             */
     private void removeStudent() {
-        // Get selected student ID from table view
+        // Get selected student record
         Students selectedStudent = table.getSelectionModel().getSelectedItem();
-        int id = Integer.parseInt(selectedStudent.getId());
 
-        // Remove student record from studentsMap
-        studentsMap.remove(id);
+        // Remove student record from students map
+        studentsMap.remove(selectedStudent.getId());
 
-        // Update table view
-        updateTable();
+        // Remove student record from student data list
+        studentData.remove(selectedStudent);
     }
-    private void updateTable() {
-        // Clear current student data
-        studentData.clear();
 
-        // Iterate through studentsMap and add Student objects to studentData
-        for (Map.Entry<Integer, Map<String, String>> entry : studentsMap.entrySet()) {
-            int id = entry.getKey();
-            Map<String, String> studentRecord = entry.getValue();
-            String firstName = studentRecord.get("First Name");
-            String lastName = studentRecord.get("Last Name");
-            String sport = studentRecord.get("Sport");
-            double gpa = Double.parseDouble(studentRecord.get("GPA"));
 
-            studentData.add(new athleteStudent(Integer.toString(id), firstName, lastName, sport, gpa));
-        }
-    }
     /**
      * Clears input fields.
      */
